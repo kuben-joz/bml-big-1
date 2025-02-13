@@ -1,4 +1,3 @@
-/amazon.npy
-/amazon_cut.csv
-/amazon_reviews_2M.csv
+*.npy
+*.csv
 /test.csv

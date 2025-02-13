@@ -10,7 +10,7 @@ rank = comm.Get_rank()
 world_size = comm.Get_size()
 
 fn = "amazon_reviews_2M.csv"
-fn = "test.csv"
+#fn = "test.csv"
 
 word_filter_re = re.compile(r"[a-zA-Z]+")
 line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
@@ -30,8 +30,8 @@ with open(fn, "r") as f:
 
 
 
-counts = np.array([*words.values()], dtype=np.int32)
-words = np.array([*words.values()], dtype=StringDType())
+counts = np.array([*words.values(), b''], dtype=np.int32)
+words = np.array([*words.keys()])
 
 ind = words.argsort()
 words = words[ind]
@@ -54,3 +54,5 @@ counts = counts[ind]
 #ind[1::2] = inc_scan
 #del exc_scan
 #del inc_scan
+# np.reduceat(counts, ind)
+# argsort(type='stable') # uses timsort with is good for nearly sorted arrays

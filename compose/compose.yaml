@@ -1,0 +1,34 @@
+name: mpi-cluster
+
+x-common-service: &common-service-template
+  build:
+    context: .
+    dockerfile: Dockerfile
+  networks:
+    - my-net
+
+services:
+  container1:
+    <<: *common-service-template
+    container_name: container1
+    ports:
+      - "4022:22"
+    command: /bin/bash -c "/setup.sh"
+
+  container2:
+    <<: *common-service-template
+    container_name: container2
+    ports:
+      - "3022:22"
+
+  container3:
+    <<: *common-service-template
+    container_name: container3
+    ports:
+      - "5022:22"
+
+  container4:
+    <<: *common-service-template
+    container_name: container4
+    ports:
+      - "6022:22"
