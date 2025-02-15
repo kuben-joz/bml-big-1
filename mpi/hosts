@@ -1,0 +1,4 @@
+container1 max_slots=1
+container2 max_slots=1
+container3 max_slots=1
+container4 max_slots=1

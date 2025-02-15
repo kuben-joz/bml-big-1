@@ -20,3 +20,7 @@ b[len(b):] = b'\0' * 10
 
 
 https://stackoverflow.com/questions/5347065/interleaving-two-numpy-arrays-efficiently
+
+
+
+The vocabs are partially sorted so to reduce latency we just all_gather and use timsort to merge the blocks locally, nothing much to overlap though

@@ -6,6 +6,11 @@ x-common-service: &common-service-template
     dockerfile: Dockerfile
   networks:
     - my-net
+  volumes:
+    - type: bind
+      source: /home/jakub/Code/BML/bml-big-1
+      target: /workspace
+      read_only: true
 
 services:
   container1:
@@ -32,3 +37,6 @@ services:
     container_name: container4
     ports:
       - "6022:22"
+
+networks:
+  my-net:
