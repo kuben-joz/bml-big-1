@@ -1,3 +1,4 @@
 #!/bin/bash
 #echo test
-python /workspace/mpi/scratch2.py
+cd /workspace
+python train.py
