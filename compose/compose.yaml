@@ -17,26 +17,50 @@ services:
     <<: *common-service-template
     container_name: container1
     ports:
-      - "4022:22"
+      - "1022:22"
     command: /bin/bash -c "/setup.sh"
 
   container2:
     <<: *common-service-template
     container_name: container2
     ports:
-      - "3022:22"
+      - "2022:22"
 
   container3:
     <<: *common-service-template
     container_name: container3
     ports:
-      - "5022:22"
+      - "3022:22"
 
   container4:
     <<: *common-service-template
     container_name: container4
     ports:
+      - "4022:22"
+
+  container5:
+    <<: *common-service-template
+    container_name: container5
+    ports:
+      - "5022:22"
+
+  container6:
+    <<: *common-service-template
+    container_name: container6
+    ports:
       - "6022:22"
+
+  container7:
+    <<: *common-service-template
+    container_name: container7
+    ports:
+      - "7022:22"
+
+  container8:
+    <<: *common-service-template
+    container_name: container8
+    ports:
+      - "8022:22"
 
 networks:
   my-net:
