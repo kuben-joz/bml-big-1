@@ -1,0 +1,23 @@
+------------ TERRAFROM -------------------
+source ENV
+terraform plan
+terraform apply
+
+ssh -o StrictHostKeyChecking=no -o "UserKnownHostsFile=/dev/null" \
+-o "LogLevel ERROR" -i ./gcp_key ${GCP_userID}@34.135.0.106
+
+time mpirun -np 5 --hostfile hostfile_mpi -x MASTER_ADDR=bml-0 \
+-x MASTER_PORT=12340 python3 train.py > res.time
+
+
+
+terraform destroy !!!!!!!!!!!!!!!
+yes!!!!!!!!!!!!
+
+------------- ANSIBLE ------------------------
+source ../keys/ENV
+
+./process.sh
+ansible-playbook -i hosts install_packages.yml
+ansible-playbook -i hosts config_ssh.yml
+

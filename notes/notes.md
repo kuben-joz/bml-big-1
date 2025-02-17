@@ -8,7 +8,7 @@ export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 
-
+- brucks algorithm
 - can't get argsort and sort at the same time so we do create a copy, sorting by cycle would help but it's pretty slow without numba
 - oculd use patricia trees and send python pickles instead, but that would work best if you could write the patricia tree in c
 - assume reviews can't have zero length (they can it's fine)

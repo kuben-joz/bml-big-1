@@ -11,7 +11,7 @@ rank = comm.Get_rank()
 world_size = comm.Get_size()
 
 fn = f"data/{rank}.csv"
-fn_out = f"out/{rank}.out"
+fn_out = f"out/1-{rank}.out"
 
 word_filter_re = re.compile(r"[a-zA-Z]+")
 line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
@@ -34,19 +34,37 @@ with open(fn, "r") as f:
         for word in text:
             words_to_counts[word][label] += 1
 
+if rank == 0:
+    print("finished reading file")
+
+
+mod = 8
+bit_type = np.uint8
+bit_len = (world_size + 1 + 7) // 8
+dict_len = len(words_to_counts)
+rank_bit = np.zeros(bit_len, dtype=bit_type)
+rank_bit[rank // mod] = 1 << (rank % mod)
+world_bit = rank_bit.copy()
+world_bit[world_size // mod] = 1 << (world_size % mod)
+
 
 def get_sum(d):
     res = 0
     for v in d.values():
         res += v
-    return res > 1
+    return world_bit if res > 1 else rank_bit
 
 
 num_labels = np.array(max_label + 1, dtype=np.int32)
 num_labels_req = comm.Iallreduce(MPI.IN_PLACE, num_labels, MPI.MAX)
 
-counts = np.fromiter((get_sum(v) for v in words_to_counts.values()), dtype=np.int8)
-words = np.fromiter(words_to_counts.keys(), dtype=StringDType())
+
+counts = np.fromiter(
+    (get_sum(v) for v in words_to_counts.values()),
+    dtype=np.dtype((bit_type, bit_len)),
+    count=dict_len,
+)
+words = np.fromiter(words_to_counts.keys(), dtype=StringDType(), count=dict_len)
 
 # mpi --------------------------------------------------------------------------------
 
@@ -62,7 +80,7 @@ str_cnt_out = np.zeros(2, dtype=np.int32)
 str_cnt_in = np.zeros_like(str_cnt_out)
 send_reqs = [MPI.REQUEST_NULL for _ in range(3)]
 recv_reqs = [MPI.REQUEST_NULL for _ in range(2)]
-'''i = 1
+i = 1
 recv_from = (rank - i) % world_size
 send_to = (rank + i) % world_size
 
@@ -71,6 +89,7 @@ str_cnt_out[:] = [len(words_send_buf), counts.shape[0]]
 send_reqs[0] = comm.Isend(str_cnt_out, send_to)
 send_reqs[1] = comm.Isend(words_send_buf, send_to)
 send_reqs[2] = comm.Isend(counts, send_to)
+
 
 while i < world_size:
     i *= 2
@@ -82,11 +101,12 @@ while i < world_size:
         new_buf_len *= 2
     words_recv_buf[len(words_recv_buf) :] = b"\0" * (new_buf_len - len(words_recv_buf))
     recv_reqs[0] = comm.Irecv(words_recv_buf, recv_from)
-    counts_recv_buf = np.zeros(str_cnt_in[1], dtype=np.int8)
+    counts_recv_buf = np.zeros((str_cnt_in[1], bit_len), dtype=bit_type)
     recv_reqs[1] = comm.Irecv(counts_recv_buf, recv_from)
 
     recv_reqs[0].Wait()
     words = np.concatenate([words, words_recv_buf[: str_cnt_in[0]].decode().split(",")])
+    # presorting with timsort is faster above ~250k line input per mpi proc
     sort_ind = words.argsort(kind="stable")
     words = words[sort_ind]
     words, ind, counts_new = np.unique(words, return_index=True, return_counts=True)
@@ -97,7 +117,9 @@ while i < world_size:
         send_reqs[0] = comm.Isend(str_cnt_out, send_to)
         send_reqs[1].Wait()
         send_reqs[1] = comm.Isend(words_send_buf, send_to)
-    counts_new = counts_new > 1
+    counts_new = np.add.accumulate(counts_new)
+    counts_new[1:] = counts_new[:-1]
+    counts_new[0] = 0
     recv_reqs[1].Wait()
     counts = np.concatenate([counts, counts_recv_buf])
     counts = counts[sort_ind]
@@ -109,42 +131,10 @@ while i < world_size:
 
     recv_from = (rank - i) % world_size
 
-MPI.Request.Waitall(send_reqs)'''
+MPI.Request.Waitall(send_reqs)
 
-i = 1
-while i < world_size:
-    recv_from = (rank - i) % world_size
-    send_to = (rank + i) % world_size
-    i *= 2
-    words_send_buf = ",".join(words).encode()
-    str_cnt_out[:] = [len(words_send_buf), counts.shape[0]]
-
-
-    send_reqs[0] = comm.Isend(str_cnt_out, send_to)
-    send_reqs[1] = comm.Isend(words_send_buf, send_to)
-    send_reqs[2] = comm.Isend(counts, send_to)
-
-    comm.Recv(str_cnt_in, recv_from)
-    new_buf_len = len(words_recv_buf)
-    while new_buf_len < str_cnt_in[0]:
-        new_buf_len *= 2
-    words_recv_buf[len(words_recv_buf) :] = b"\0" * (new_buf_len - len(words_recv_buf))
-    recv_reqs[0] = comm.Irecv(words_recv_buf, recv_from)
-    counts_recv_buf = np.zeros(str_cnt_in[1], dtype=np.int8)
-    recv_reqs[1] = comm.Irecv(counts_recv_buf, recv_from)
-
-    recv_reqs[0].Wait()
-    words = np.concatenate([words, words_recv_buf[: str_cnt_in[0]].decode().split(",")])
-    sort_ind = words.argsort(kind="stable")
-    words = words[sort_ind]
-    words, ind, counts_new = np.unique(words, return_index=True, return_counts=True)
-    counts_new = counts_new > 1
-    recv_reqs[1].Wait()
-    counts = np.concatenate([counts, counts_recv_buf])
-    counts = counts[sort_ind]
-    counts = counts[ind]
-    counts[counts_new] = 1
-    MPI.Request.Waitall(send_reqs)
+if rank == 0:
+    print("finished exchange of strings")
 
 # final ---------------------------------------------------------
 words = words[np.nonzero(counts)]
@@ -205,6 +195,8 @@ while i < world_size:
     res += temp_csr
     i *= 2
 
+if rank == 0:
+    print("finished exchange data")
 
 res = res.astype(np.double).toarray()
 # comm.Allreduce(MPI.IN_PLACE, res)

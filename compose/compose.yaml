@@ -44,23 +44,23 @@ services:
     ports:
       - "5022:22"
 
-  container6:
-    <<: *common-service-template
-    container_name: container6
-    ports:
-      - "6022:22"
-
-  container7:
-    <<: *common-service-template
-    container_name: container7
-    ports:
-      - "7022:22"
-
-  container8:
-    <<: *common-service-template
-    container_name: container8
-    ports:
-      - "8022:22"
+#  container6:
+#    <<: *common-service-template
+#    container_name: container6
+#    ports:
+#      - "6022:22"
+#
+#  container7:
+#    <<: *common-service-template
+#    container_name: container7
+#    ports:
+#      - "7022:22"
+#
+#  container8:
+#    <<: *common-service-template
+#    container_name: container8
+#    ports:
+#      - "8022:22"
 
 networks:
   my-net:

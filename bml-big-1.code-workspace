@@ -4,5 +4,10 @@
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"yaml.schemas": {
+			"https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/playbook": "file:///home/jakub/Code/BML/bml-big-1/ansible/config_ssh.yml"
+		},
+		"ansible.python.interpreterPath": "/home/jakub/.pyenv/versions/3.12.8/envs/bml/bin/python"
+	}
 }
