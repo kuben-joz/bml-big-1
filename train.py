@@ -1,4 +1,5 @@
 import re
+import sys
 from collections import defaultdict
 
 import numpy as np
@@ -10,8 +11,12 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 world_size = comm.Get_size()
 
-fn = f"data/{rank}.csv"
-fn_out = f"out/1-{rank}.out"
+
+f_in = f"data/{rank}.csv"
+f_out = f"out/1-{rank}.out"
+if len(sys.argv) == 3:
+    f_in = sys.argv[1]
+    f_out = sys.argv[2]
 
 word_filter_re = re.compile(r"[a-zA-Z]+")
 line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
@@ -19,7 +24,7 @@ line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
 words_to_counts = defaultdict(lambda: [0, defaultdict(lambda: 0)])
 labels = defaultdict(lambda: 0)
 max_label = 0
-with open(fn, "r") as f:
+with open(f_in, "r") as f:
     for line in f:
         text, label = line_split_re.findall(line)[0]
         label = int(label)
@@ -28,7 +33,8 @@ with open(fn, "r") as f:
             np.fromiter(
                 (str.lower(word) for word in word_filter_re.findall(text)),
                 dtype=StringDType(),
-            ), return_counts=True
+            ),
+            return_counts=True,
         )
         labels[label] += 1
         for word, count in zip(text, counts):
@@ -145,31 +151,33 @@ for label, count in labels.items():
 
 labels_req = comm.Iallreduce(MPI.IN_PLACE, label_counts)
 
-res = np.zeros((num_labels, words.shape[0]), dtype=np.int32)
+res = np.zeros((words.shape[0], num_labels), dtype=np.int32)
 word_locs = np.isin(words, words_orig).nonzero()[0]
 
 for loc, word in zip(word_locs, words[word_locs]):
     for label, count in words_to_counts[word][1].items():
-        res[label][loc] = count
+        res[loc][label] = count
 
+res = np.transpose(res)
 
 res_shape = res.shape[:]
 res_size = res.size
 
-buf_size = res_size + res_size + res_shape[0] + 3
+# data+indicies+indptr+3 minus ones for splitting
+buf_size = res_size + res_size + res_shape[0] + 1 + 3
 
-in_buf = np.zeros(buf_size, dtype=np.int32)
-out_buf = np.zeros(buf_size, dtype=np.int32)
+buf = np.zeros(buf_size, dtype=np.int32)
 
 res = csr_array(res)
 
-def to_csr(arr):
-    inters = (arr == -1).nonzero()[0]
+
+def to_csr(buf):
+    inters = (buf == -1).nonzero()[0]
     res = csr_array(
         (
-            arr[: inters[0]],
-            arr[inters[0] + 1 : inters[1]],
-            arr[inters[1] + 1, inters[2]],
+            buf[: inters[0]],
+            buf[inters[0] + 1 : inters[1]],
+            buf[inters[1] + 1 : inters[2]],
         ),
         shape=res_shape,
     )
@@ -180,59 +188,56 @@ def to_buf(csr_arr, buf):
     i = csr_arr.data.size
     buf[:i] = csr_arr.data
     buf[i] = -1
-    i_prev = i+1
+    i_prev = i + 1
     i = csr_arr.indices.size + i_prev
     buf[i_prev:i] = csr_arr.indices
     buf[i] = -1
-    i_prev = i+1
-    i = csr_arr.ind_ptr.size + i_prev
-    buf[i_prev:i] = csr_arr.ind_ptr
+    i_prev = i + 1
+    i = csr_arr.indptr.size + i_prev
+    buf[i_prev:i] = csr_arr.indptr
     buf[i] = -1
     i += 1
+    # todo check this is unnecessary
     buf[i:] = 0
     return i
 
 
-data_in = np.zeros(res_size, dtype=np.int32)
-data_out = np.zeros_like(data_in)
-indices_in = np.zeros_like(data_in, dtype=np.int32)
-indices_out = np.zeros_like(indices_in)
-indptr_in = np.zeros_like(res.indptr, dtype=np.int32)
-indptr_out = np.zeros_like(indptr_in)
+# tree reduce then braodcast as allreduce, cloud do better but it's a pain in python
 i = 1
-recv_stats = [MPI.Status() for _ in range(3)]
 while i < world_size:
-    send_reqs = []
-    recv_reqs = []
-
-    recv_from = (rank - i) % world_size
-    send_to = (rank + i) % world_size
-    send_reqs.append(comm.Isend(res.data, send_to))
-    send_reqs.append(comm.Isend(res.indices, send_to))
-    send_reqs.append(comm.Isend(res.indptr, send_to))
-
-    recv_reqs.append(comm.Irecv(data_in, recv_from))
-    recv_reqs.append(comm.Irecv(indices_in, recv_from))
-    recv_reqs.append(comm.Irecv(indptr_in, recv_from))
-    MPI.Request.Waitall(recv_reqs, recv_stats)
-    temp_csr = csr_array(
-        (
-            data_in[: recv_stats[0].Get_count(MPI.INT32_T)],
-            indices_in[: recv_stats[1].Get_count(MPI.INT32_T)],
-            indptr_in[: recv_stats[2].Get_count(MPI.INT32_T)],
-        ),
-        shape=res_shape,
-    )
-
-    MPI.Request.Waitall(send_reqs)
-    # todo check if this can be before wait
-    res += temp_csr
+    if rank % i != 0:
+        break
+    if rank % (i * 2) == 0:
+        # recieves
+        if rank + i >= world_size:
+            # rank doesn't exist so we wait for the send in future iterations
+            i *= 2
+            continue
+        recv_from = (rank + i) % world_size
+        buf[:] = 0
+        comm.Recv(buf, recv_from)
+        res += to_csr(buf)
+    else:
+        # sends
+        send_to = (rank - i) % world_size
+        send_len = to_buf(res, buf)
+        comm.Send(buf[:send_len], send_to)
     i *= 2
 
+send_len = np.array([0], dtype=np.int32)
 if rank == 0:
+    send_len[0] = to_buf(res, buf)
+    #comm.Bcast(send_len, root=0)
+    #comm.Bcast(buf[:send_len[0]], root=0)
+    comm.Bcast(buf, root=0)
     print("finished exchange data")
+else:
+    buf[:] = 0
+    #comm.Bcast(send_len, root=0)
+    #comm.Bcast(buf[:send_len[0]], root=0)
+    comm.Bcast(buf, root=0)
+    res = to_csr(buf)
 
-MPI.SUM
 
 res = res.astype(np.double).toarray()
 # print(res_shape)
@@ -254,7 +259,7 @@ label_sum = label_counts.sum()
 label_counts /= label_sum
 res = np.concatenate((res, label_counts), axis=1)
 
-with open(fn_out, "w") as f:
+with open(f_out, "w") as f:
     f.write(",".join(words))
     f.write("\n")
     np.savetxt(f, res, delimiter=",")
