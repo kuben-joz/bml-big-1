@@ -3,15 +3,14 @@ import sys
 from collections import defaultdict
 
 import numpy as np
+import pandas as pd
 from mpi4py import MPI
 from numpy.dtypes import StringDType
 from scipy.sparse import csr_array
-import time
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 world_size = comm.Get_size()
-
 
 
 f_in = "in.csv"
@@ -21,28 +20,52 @@ if len(sys.argv) == 3:
     f_out = sys.argv[2]
 
 word_filter_re = re.compile(r"[a-zA-Z]+")
-line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
+
 
 words_to_counts = defaultdict(lambda: [0, defaultdict(lambda: 0)])
 labels = defaultdict(lambda: 0)
 max_label = 0
+line_split_re = re.compile(r"^(.*),(\d+)$", re.DOTALL)
 with open(f_in, "r") as f:
-    for line in f:
-        text, label = line_split_re.findall(line)[0]
-        label = int(label)
-        max_label = max(max_label, label)
-        text, counts = np.unique(
-            np.fromiter(
-                (str.lower(word) for word in word_filter_re.findall(text)),
-                dtype=StringDType(),
-            ),
-            return_counts=True,
-        )
-        labels[label] += 1
-        for word, count in zip(text, counts):
-            cur_el = words_to_counts[word]
-            cur_el[0] += count
-            cur_el[1][label] += 1
+   for line in f:
+       text, label = line_split_re.findall(line)[0]
+       label = int(label)
+       max_label = max(max_label, label)
+       text, counts = np.unique(
+           np.fromiter(
+               (str.lower(word) for word in word_filter_re.findall(text)),
+               dtype=StringDType(),
+           ),
+           return_counts=True,
+       )
+       labels[label] += 1
+       for word, count in zip(text, counts):
+           cur_el = words_to_counts[word]
+           cur_el[0] += count
+           cur_el[1][label] += 1
+
+#df = pd.read_csv(
+#    f_in,
+#    dtype={"review": str, "label": np.int32},
+#    index_col=False,
+#    names=["review", "label"],
+#)
+#for text, label in df.itertuples(index=False, name=None):
+#    label = int(label)
+#    max_label = max(max_label, label)
+#    text, counts = np.unique(
+#        np.fromiter(
+#            (str.lower(word) for word in word_filter_re.findall(text)),
+#            dtype=StringDType(),
+#        ),
+#        return_counts=True,
+#    )
+#    labels[label] += 1
+#    for word, count in zip(text, counts):
+#        cur_el = words_to_counts[word]
+#        cur_el[0] += count
+#        cur_el[1][label] += 1
+#del df
 
 
 if rank == 0:
@@ -96,7 +119,6 @@ if world_size > 1:
     send_reqs[1] = comm.Isend(words_send_buf, send_to)
     send_reqs[2] = comm.Isend(counts, send_to)
 
-
     while i < world_size:
         i *= 2
         send_to = (rank + i) % world_size
@@ -105,13 +127,17 @@ if world_size > 1:
         new_buf_len = len(words_recv_buf)
         while new_buf_len < str_cnt_in[0]:
             new_buf_len *= 2
-        words_recv_buf[len(words_recv_buf) :] = b"\0" * (new_buf_len - len(words_recv_buf))
+        words_recv_buf[len(words_recv_buf) :] = b"\0" * (
+            new_buf_len - len(words_recv_buf)
+        )
         recv_reqs[0] = comm.Irecv(words_recv_buf, recv_from)
         counts_recv_buf = np.zeros((str_cnt_in[1], bit_len), dtype=bit_type)
         recv_reqs[1] = comm.Irecv(counts_recv_buf, recv_from)
 
         recv_reqs[0].Wait()
-        words = np.concatenate([words, words_recv_buf[: str_cnt_in[0]].decode().split(",")])
+        words = np.concatenate(
+            [words, words_recv_buf[: str_cnt_in[0]].decode().split(",")]
+        )
         # presorting with timsort is faster above ~250k line input per mpi proc
         sort_ind = words.argsort(kind="stable")
         words = words[sort_ind]
@@ -183,7 +209,7 @@ while i < words.shape[0] and j < words_orig.shape[0]:
 
 word_locs = word_locs[:res_i]
 
-#word_locs = np.isin(words, words_orig, assume_unique=True).nonzero()[0]
+# word_locs = np.isin(words, words_orig, assume_unique=True).nonzero()[0]
 
 for loc, word in zip(word_locs, words[word_locs]):
     cur_word = res[loc]
@@ -203,7 +229,6 @@ if world_size > 1:
 
     res = csr_array(res)
 
-
     def to_csr(buf):
         inters = (buf == -1).nonzero()[0]
         res = csr_array(
@@ -215,7 +240,6 @@ if world_size > 1:
             shape=res_shape,
         )
         return res
-
 
     def to_buf(csr_arr, buf):
         i = csr_arr.data.size
@@ -233,7 +257,6 @@ if world_size > 1:
         # todo check this is unnecessary
         buf[i:] = 0
         return i
-
 
     # tree reduce then braodcast as allreduce, cloud do better but it's a pain in python
     i = 1
@@ -271,7 +294,6 @@ if world_size > 1:
         comm.Bcast(buf, root=0)
         res = to_csr(buf)
 
-
     res = res.astype(np.double).toarray()
     # print(res_shape)
     # comm.Barrier()
@@ -298,4 +320,3 @@ with open(f_out, "w") as f:
     f.write(",".join(words))
     f.write("\n")
     np.savetxt(f, res, delimiter=",")
-
