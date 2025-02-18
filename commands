@@ -4,12 +4,12 @@ terraform plan
 terraform apply
 
 ssh -o StrictHostKeyChecking=no -o "UserKnownHostsFile=/dev/null" \
--o "LogLevel ERROR" -i ./gcp_key ${GCP_userID}@34.135.0.106
+-o "LogLevel ERROR" -i ./gcp_key ${GCP_userID}@34.170.195.155
 
 time mpirun -np 5 --hostfile hostfile_mpi -x MASTER_ADDR=bml-0 \
--x MASTER_PORT=12340 python3 train.py > res.time
+-x MASTER_PORT=12340 python3 train.py
 
-
+time python3 train_single.py
 
 terraform destroy !!!!!!!!!!!!!!!
 yes!!!!!!!!!!!!
@@ -20,4 +20,4 @@ source ../keys/ENV
 ./process.sh
 ansible-playbook -i hosts install_packages.yml
 ansible-playbook -i hosts config_ssh.yml
-
+ansible-playbook -i hosts move_data.yml

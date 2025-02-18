@@ -5,8 +5,8 @@ from collections import defaultdict
 import numpy as np
 from numpy.dtypes import StringDType
 
-f_in = "data/all.csv"
-f_out = "out/all.out"
+f_in = "in.csv"
+f_out = "out.csv"
 if len(sys.argv) == 3:
     f_in = sys.argv[1]
     f_out = sys.argv[2]
